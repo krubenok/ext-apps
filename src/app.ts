@@ -21,7 +21,7 @@ import {
   type ToolListChangedNotification,
   type Transport,
 } from "@modelcontextprotocol/client";
-import { EmptyResultSchema } from "@modelcontextprotocol/core";
+import { ElicitRequestParamsSchema, ElicitResultSchema, EmptyResultSchema } from "@modelcontextprotocol/core";
 export { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY } from "./constants.js";
 import { EventDispatcher, MethodRegistry } from "./events.js";
 import {
@@ -34,7 +34,7 @@ export type {
   LegacyNotificationHandler,
   LegacyNotificationHandlerSetter,
   LegacyRequestHandler,
-  LegacyRequestHandlerExtra,
+  LegacyBaseContext,
   LegacyRequestHandlerSetter,
 } from "./legacy-handlers.js";
 export { EventDispatcher } from "./events.js";
@@ -198,10 +198,10 @@ export type AppToolCallback<
 > = In extends StandardSchemaV1
   ? (
       args: StandardSchemaV1.InferOutput<In>,
-      extra: RequestHandlerExtra,
+      extra: BaseContext,
     ) => AppToolResult<Out> | Promise<AppToolResult<Out>>
   : (
-      extra: RequestHandlerExtra,
+      extra: BaseContext,
     ) => AppToolResult<Out> | Promise<AppToolResult<Out>>;
 
 /**
@@ -224,7 +224,7 @@ export type RegisteredAppTool = {
   /** @internal */
   handler: (
     args: unknown,
-    extra: RequestHandlerExtra,
+    extra: BaseContext,
   ) => Promise<CallToolResult>;
 };
 
@@ -1072,7 +1072,7 @@ export class App extends Protocol<BaseContext> {
    */
   private _onteardown?: (
     params: McpUiResourceTeardownRequest["params"],
-    extra: RequestHandlerExtra,
+    extra: BaseContext,
   ) => McpUiResourceTeardownResult | Promise<McpUiResourceTeardownResult>;
   get onteardown() {
     return this._onteardown;
@@ -1081,7 +1081,7 @@ export class App extends Protocol<BaseContext> {
     callback:
       | ((
           params: McpUiResourceTeardownRequest["params"],
-          extra: RequestHandlerExtra,
+          extra: BaseContext,
         ) => McpUiResourceTeardownResult | Promise<McpUiResourceTeardownResult>)
       | undefined,
   ) {
@@ -1098,6 +1098,49 @@ export class App extends Protocol<BaseContext> {
         return this._onteardown(params, extra);
       },
     );
+  }
+
+  /**
+   * Handle a form-mode elicitation that the host has bound to this app.
+   *
+   * The callback receives the unchanged standard MCP `elicitation/create`
+   * parameters and returns the unchanged standard MCP `ElicitResult`.
+   * Register this handler before {@link connect `connect`}; doing so advertises
+   * the app's `elicitation` capability during `ui/initialize`.
+   */
+  private _onelicitation?: (
+    params: ElicitRequest["params"],
+    extra: BaseContext,
+  ) => ElicitResult | Promise<ElicitResult>;
+  get onelicitation() {
+    return this._onelicitation;
+  }
+  set onelicitation(
+    callback:
+      | ((
+          params: ElicitRequest["params"],
+          extra: BaseContext,
+        ) => ElicitResult | Promise<ElicitResult>)
+      | undefined,
+  ) {
+    this.warnIfRequestHandlerReplaced(
+      "onelicitation",
+      this._onelicitation,
+      callback,
+    );
+    this._onelicitation = callback;
+    if (callback && !this._appCapabilities.elicitation && !this.transport) {
+      this._appCapabilities.elicitation = {};
+    }
+    this.replaceRequestHandler("elicitation/create", { params: ElicitRequestParamsSchema, result: ElicitResultSchema }, (params, extra) => {
+      if (!this._onelicitation) {
+        throw new Error("No onelicitation handler set");
+      }
+      if (params.mode !== undefined && params.mode !== "form") {
+        throw new Error("MCP Apps only support form-mode elicitations");
+      }
+      return this._onelicitation(params, extra);
+    });
   }
 
   /**
@@ -1130,7 +1173,7 @@ export class App extends Protocol<BaseContext> {
    */
   private _oncalltool?: (
     params: CallToolRequest["params"],
-    extra: RequestHandlerExtra,
+    extra: BaseContext,
   ) => Promise<CallToolResult>;
   get oncalltool() {
     return this._oncalltool;
@@ -1139,7 +1182,7 @@ export class App extends Protocol<BaseContext> {
     callback:
       | ((
           params: CallToolRequest["params"],
-          extra: RequestHandlerExtra,
+          extra: BaseContext,
         ) => Promise<CallToolResult>)
       | undefined,
   ) {
@@ -1197,7 +1240,7 @@ export class App extends Protocol<BaseContext> {
    */
   private _onlisttools?: (
     params: ListToolsRequest["params"],
-    extra: RequestHandlerExtra,
+    extra: BaseContext,
   ) => Promise<ListToolsResult>;
   get onlisttools() {
     return this._onlisttools;
@@ -1206,7 +1249,7 @@ export class App extends Protocol<BaseContext> {
     callback:
       | ((
           params: ListToolsRequest["params"],
-          extra: RequestHandlerExtra,
+          extra: BaseContext,
         ) => Promise<ListToolsResult>)
       | undefined,
   ) {
@@ -1250,6 +1293,11 @@ export class App extends Protocol<BaseContext> {
           throw new Error(
             `Client does not support tool capability (required for ${method})`,
           );
+        }
+        return;
+      case "elicitation/create":
+        if (!this._appCapabilities.elicitation) {
+          throw new Error(`App does not support elicitation capability (required for ${method})`);
         }
         return;
       default:
