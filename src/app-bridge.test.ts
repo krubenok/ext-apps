@@ -252,7 +252,7 @@ describe("App <-> AppBridge integration", () => {
       },
     );
 
-    it("keeps metadata and cancellation bound to the bridge request", async () => {
+    it("keeps metadata and cancellation bound to request ID zero", async () => {
       bridge = new AppBridge(createMockClient() as Client, testHostInfo, {
         ...testHostCapabilities,
         elicitation: {},
@@ -270,6 +270,7 @@ describe("App <-> AppBridge integration", () => {
         expect(params._meta?.ui).toEqual({
           resourceUri: "ui://delivery/choose.html",
         });
+        expect(ctx.mcpReq.id).toBe(0);
         ctx.mcpReq.signal.addEventListener("abort", cancelled, { once: true });
         received();
         await aborted;
@@ -277,9 +278,6 @@ describe("App <-> AppBridge integration", () => {
       };
       await bridge.connect(bridgeTransport);
       await app.connect(appTransport);
-      // SDK 2.0.0 ignores cancellation for request ID 0. Use a nonzero
-      // request ID here to test propagation independently of that SDK bug.
-      await bridge.request({ method: "ping" });
       const pending = bridge.requestElicitation(
         {
           message: "Choose",
