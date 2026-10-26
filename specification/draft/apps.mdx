@@ -2413,6 +2413,20 @@ elicitation. A host MUST advertise `hostCapabilities.elicitation` before it
 forwards one. If either setting is absent, the host MUST use its native
 form-elicitation UI instead.
 
+#### App Responsibilities
+
+An app provides the user interface for the standard form elicitation. To
+complete the elicitation, it MUST respond to the forwarded `elicitation/create`
+request with a standard MCP `ElicitResult`. The result's `action` MUST be
+`accept`, `decline`, or `cancel`. For `accept`, the app MUST return `content`
+that conforms to the original `requestedSchema`.
+
+Custom rendering does not expand the permitted form schema or response types.
+The app MUST comply with the core MCP form-elicitation restrictions, including
+restrictions on collecting sensitive information. The server MUST supply a
+complete standard form elicitation so the host can render it natively when
+app rendering is unavailable.
+
 #### Resolution Flow
 
 For each app-rendered elicitation in protocol revision `2026-07-28`, the
@@ -2432,13 +2446,47 @@ client:
 7. Places the result under the same key in `inputResponses` and retries the
    originating request with the server-provided `requestState`, if any.
 
-For example, an app resolves the View↔Host request by returning the standard
-result:
+For example, after initialization the host sends this request over the
+View↔Host channel. The method and parameters are unchanged; the JSON-RPC ID
+belongs to this channel and is independent of the originating server request:
 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 12,
+  "id": "app-elicitation-1",
+  "method": "elicitation/create",
+  "params": {
+    "mode": "form",
+    "message": "Choose a delivery window",
+    "requestedSchema": {
+      "type": "object",
+      "properties": {
+        "window": {
+          "type": "string",
+          "oneOf": [
+            { "const": "morning", "title": "Morning" },
+            { "const": "afternoon", "title": "Afternoon" }
+          ]
+        }
+      },
+      "required": ["window"]
+    },
+    "_meta": {
+      "ui": {
+        "resourceUri": "ui://delivery/choose-window.html"
+      }
+    }
+  }
+}
+```
+
+The app resolves that request by returning the standard result with the same
+View↔Host request ID:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "app-elicitation-1",
   "result": {
     "action": "accept",
     "content": {
