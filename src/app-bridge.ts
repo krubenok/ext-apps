@@ -583,8 +583,13 @@ export class AppBridge extends Protocol<BaseContext> {
    * @internal
    */
   protected assertCapabilityForMethod(method: string): void {
-    if (method === "elicitation/create" && !this._appCapabilities?.elicitation) {
-      throw new Error(`App does not support elicitation capability (required for ${method})`);
+    if (
+      method === "elicitation/create" &&
+      !this._appCapabilities?.elicitation
+    ) {
+      throw new Error(
+        `App does not support elicitation capability (required for ${method})`,
+      );
     }
   }
 
@@ -634,7 +639,10 @@ export class AppBridge extends Protocol<BaseContext> {
    *
    * Hosts should call this only from the core MCP client's handler for the
    * originating `elicitation/create` request. The returned value is the
-   * standard MCP `ElicitResult` and can be returned directly to the server.
+   * standard MCP `ElicitResult`. Before returning an accepted result to the
+   * server, hosts must validate its content against `params.requestedSchema`.
+   * Invalid results should fall back to native form rendering; explicit
+   * `decline` and `cancel` results must be preserved.
    */
   requestElicitation(
     params: ElicitRequest["params"],
@@ -654,8 +662,8 @@ export class AppBridge extends Protocol<BaseContext> {
     }
     return this.request(
       { method: "elicitation/create", params },
+      ElicitResultSchema,
       options,
-    ).then((result) => ElicitResultSchema.parse(result)
     );
   }
 

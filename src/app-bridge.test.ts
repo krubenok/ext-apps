@@ -233,6 +233,91 @@ describe("App <-> AppBridge integration", () => {
       });
     });
 
+    it.each(["decline", "cancel"] as const)(
+      "preserves the user's %s result",
+      async (action) => {
+        bridge = new AppBridge(createMockClient() as Client, testHostInfo, {
+          ...testHostCapabilities,
+          elicitation: {},
+        });
+        app.onelicitation = async () => ({ action });
+        await bridge.connect(bridgeTransport);
+        await app.connect(appTransport);
+        await expect(
+          bridge.requestElicitation({
+            message: "Choose",
+            requestedSchema: { type: "object", properties: {} },
+          }),
+        ).resolves.toEqual({ action });
+      },
+    );
+
+    it("keeps metadata and cancellation bound to the bridge request", async () => {
+      bridge = new AppBridge(createMockClient() as Client, testHostInfo, {
+        ...testHostCapabilities,
+        elicitation: {},
+      });
+      const controller = new AbortController();
+      let received!: () => void;
+      const started = new Promise<void>((resolve) => {
+        received = resolve;
+      });
+      let cancelled!: () => void;
+      const aborted = new Promise<void>((resolve) => {
+        cancelled = resolve;
+      });
+      app.onelicitation = async (params, ctx) => {
+        expect(params._meta?.ui).toEqual({
+          resourceUri: "ui://delivery/choose.html",
+        });
+        ctx.mcpReq.signal.addEventListener("abort", cancelled, { once: true });
+        received();
+        await aborted;
+        return { action: "cancel" };
+      };
+      await bridge.connect(bridgeTransport);
+      await app.connect(appTransport);
+      // SDK 2.0.0 ignores cancellation for request ID 0. Use a nonzero
+      // request ID here to test propagation independently of that SDK bug.
+      await bridge.request({ method: "ping" });
+      const pending = bridge.requestElicitation(
+        {
+          message: "Choose",
+          requestedSchema: { type: "object", properties: {} },
+          _meta: { ui: { resourceUri: "ui://delivery/choose.html" } },
+        },
+        { signal: controller.signal },
+      );
+      const rejection = pending.then(
+        () => {
+          throw new Error("Expected cancellation");
+        },
+        () => {},
+      );
+      await started;
+      controller.abort("test cancellation");
+      await rejection;
+      await aborted;
+    });
+
+    it("rejects URL-mode requests before forwarding them", async () => {
+      bridge = new AppBridge(createMockClient() as Client, testHostInfo, {
+        ...testHostCapabilities,
+        elicitation: {},
+      });
+      app.onelicitation = async () => ({ action: "cancel" });
+      await bridge.connect(bridgeTransport);
+      await app.connect(appTransport);
+      expect(() =>
+        bridge.requestElicitation({
+          mode: "url",
+          message: "Open",
+          elicitationId: "test",
+          url: "https://example.com",
+        }),
+      ).toThrow("form-mode");
+    });
+
     it("fails closed when the app did not advertise elicitation", async () => {
       bridge = new AppBridge(createMockClient() as Client, testHostInfo, {
         ...testHostCapabilities,

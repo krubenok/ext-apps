@@ -2315,6 +2315,12 @@ extension, the standard MCP elicitation request and result, and the existing
 View↔Host JSON-RPC channel. It defines no new method, result, or extension
 identifier.
 
+This feature is specified entirely by MCP Apps. It uses core capability
+extension points and request metadata without changing the core MCP protocol.
+The MCP Apps bridge version is negotiated independently of the core version;
+app rendering also works with initialized sessions that deliver elicitations as
+direct server-to-client requests.
+
 #### Associating an App with an Elicitation
 
 The server attaches the app resource URI at `_meta.ui.resourceUri` on the
